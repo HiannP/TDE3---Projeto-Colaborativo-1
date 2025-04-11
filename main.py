@@ -49,127 +49,133 @@ estruturas de dados ou funções solicitadas
 """
 
 import os
+import re
 from collections import defaultdict
+from email.utils import parseaddr
 
 class GrafoEmail:
     def __init__(self):
         self.lista_adj = defaultdict(dict)
-        self.ordem = 0
-        self.tamanho = 0
+        self.grau_entrada = defaultdict(int)
+        self.grau_saida = defaultdict(int)
+        self.vertices = set()
 
-    # Adiciona um e-mail ao grafo, atualizando a lista de adjacências e incrementando a ordem e o tamanho do grafo
     def adicionar_email(self, remetente, destinatarios):
-        """
-        Adiciona um e-mail ao grafo, atualizando a lista de adjacências.
-        :param remetente: Endereço de e-mail do remetente.
-        :param destinatarios: Lista de endereços de e-mail dos destinatários.
-        """
-        # Adiciona o remetente como vértice, mesmo que ele não tenha destinatários
-        if remetente not in self.lista_adj:
-            self.lista_adj[remetente] = {}
-            self.ordem += 1
-
-        # Adiciona os destinatários como vértices, mesmo que eles não tenham arestas de saída
+        #Adiciona arestas ao grafo e atualiza graus.
+        remetente = remetente.lower()
+        self.vertices.add(remetente)
+        
         for destinatario in destinatarios:
-            if destinatario not in self.lista_adj:
-                self.lista_adj[destinatario] = {}
-                self.ordem += 1
-
-            # Incrementa o peso da aresta ou cria uma nova
+            destinatario = destinatario.lower()
+            self.vertices.add(destinatario)
+            
+            # Atualiza aresta e graus
             if destinatario in self.lista_adj[remetente]:
                 self.lista_adj[remetente][destinatario] += 1
             else:
                 self.lista_adj[remetente][destinatario] = 1
-                self.tamanho += 1
-    
-    # Função para salvar a lista de adjacências em um arquivo texto
-    def salvar_lista_adjacencias(self, arquivo_saida):
-        """
-        Salva a lista de adjacências em um arquivo texto no formato especificado.
-        :param arquivo_saida: Caminho do arquivo de saída.
-        """
-        with open(arquivo_saida, 'w') as f:
-            for remetente, destinatarios in self.lista_adj.items():
-                # Formatar as arestas e pesos no formato solicitado
-                arestas_formatadas = " -> ".join([f"('{destinatario}', {peso})" for destinatario, peso in destinatarios.items()])
-                f.write(f"{remetente}: {arestas_formatadas}\n")
+                self.grau_saida[remetente] += 1
+                self.grau_entrada[destinatario] += 1
 
-    # Função para obter o número de vértices (ordem do grafo)
+    # Métodos do Requisito 2
     def get_ordem(self):
-        """
-        Retorna o número de vértices do grafo.
-        :return: Número de vértices (ordem do grafo).
-        """
-        return self.ordem
+        return len(self.vertices)
 
-    # Função para obter o número de arestas (tamanho do grafo)
     def get_tamanho(self):
-        """
-        Retorna o número de arestas do grafo.
-        :return: Número de arestas (tamanho do grafo).
-        """
-        return self.tamanho
+        return sum(len(vizinhos) for vizinhos in self.lista_adj.values())
 
-    # Função para obter o número de vértices isolados
     def get_isolados(self):
-        """
-        Retorna o número de vértices isolados no grafo.
-        Um vértice é isolado se não possui arestas de entrada nem de saída.
-        :return: Número de vértices isolados.
-        """
-        isolados = 0
-        for vertice, adjacentes in self.lista_adj.items():
-            # Verifica se o vértice não possui arestas de saída
-            if not adjacentes:
-                # Verifica se o vértice não possui arestas de entrada
-                possui_entrada = any(vertice in self.lista_adj[remetente] for remetente in self.lista_adj)
-                if not possui_entrada:
-                    isolados += 1
-        return isolados
+        return sum(1 for v in self.vertices 
+                 if self.grau_saida[v] == 0 and self.grau_entrada[v] == 0)
 
+    def get_20_grau_saida(self):
+        return sorted(self.grau_saida.items(), key=lambda x: -x[1])[:20]
 
-# Função para processar os e-mails no diretório base e construir o grafo
-def processar_emails(diretorio_base, grafo):
-    """
-    Processa os arquivos de e-mail no diretório base e atualiza o grafo.
-    :param diretorio_base: Caminho para o diretório base contendo os e-mails.
-    :param grafo: Instância de GrafoEmail.
-    """
-    for root, _, files in os.walk(diretorio_base):
-        for file in files:
-            caminho_arquivo = os.path.join(root, file)
-            with open(caminho_arquivo, 'r', encoding='utf-8', errors='ignore') as f:
-                linhas = f.readlines()
-                remetente = None
-                destinatarios = []
-                for linha in linhas:
-                    if linha.lower().startswith("from:"):
-                        remetente = linha.split(":")[1].strip()
-                        # Adiciona o remetente ao grafo, mesmo que ele não tenha destinatários
-                        if remetente:
-                            grafo.adicionar_email(remetente, [])
-                    elif linha.lower().startswith("to:"):
-                        destinatarios = [email.strip() for email in linha.split(":")[1].split(",")]
-                        # Adiciona os destinatários ao grafo, mesmo que não tenham arestas de saída
-                        for destinatario in destinatarios:
-                            grafo.adicionar_email(destinatario, [])
-                # Adiciona a conexão entre remetente e destinatários, se existirem
-                if remetente and destinatarios:
-                    grafo.adicionar_email(remetente, destinatarios)
+    def get_20_grau_entrada(self):
+        return sorted(self.grau_entrada.items(), key=lambda x: -x[1])[:20]
+
+    # Utilitários de processamento de email
+    @staticmethod
+    def extrair_enderecos(cabecalho):
+        #Extrai emails de cabeçalhos complexos.#
+        if not cabecalho:
+            return []
+            
+        enderecos = []
+        partes = cabecalho.split(':', 1)[-1].split(',')
+        for parte in partes:
+            _, email = parseaddr(parte.strip())
+            if email and '@' in email:
+                enderecos.append(email.lower())
+        return enderecos
+
+    @classmethod
+    def processar_arquivo(cls, caminho_arquivo):
+        #Processa um único arquivo de email.#
+        grafo = cls()
+        with open(caminho_arquivo, 'r', encoding='utf-8', errors='ignore') as f:
+            conteudo = f.read()
+
+            # Extrai cabeçalhos principais
+            from_match = re.search(r'^From:\s*(.*?)$', conteudo, re.M | re.I)
+            to_match = re.search(r'^To:\s*(.*?)$', conteudo, re.M | re.I)
+            
+            remetente = cls.extrair_enderecos(from_match.group(1)) if from_match else []
+            destinatarios = cls.extrair_enderecos(to_match.group(1)) if to_match else []
+
+            if remetente and destinatarios:
+                grafo.adicionar_email(remetente[0], destinatarios)
+
+            # Processa encaminhamentos
+            for enc in re.findall(r'-{5,}.*?Forwarded by.*?-{5,}(.*?)-{5,}', conteudo, re.S):
+                from_enc = re.search(r'From:\s*(.*?)$', enc, re.M | re.I)
+                to_enc = re.search(r'To:\s*(.*?)$', enc, re.M | re.I)
+                
+                if from_enc and to_enc:
+                    rem_enc = cls.extrair_enderecos(from_enc.group(1))
+                    dest_enc = cls.extrair_enderecos(to_enc.group(1))
+                    if rem_enc and dest_enc:
+                        grafo.adicionar_email(rem_enc[0], dest_enc)
+
+        return grafo
+
+    @classmethod
+    def processar_diretorio(cls, diretorio_base):
+        """Processa todos os arquivos em um diretório."""
+        grafo = cls()
+        for root, _, files in os.walk(diretorio_base):
+            for file in files:
+                caminho = os.path.join(root, file)
+                try:
+                    grafo_arquivo = cls.processar_arquivo(caminho)
+                    # Mescla os grafos
+                    for rem, dests in grafo_arquivo.lista_adj.items():
+                        grafo.adicionar_email(rem, dests.keys())
+                except Exception as e:
+                    print(f"Erro ao processar {caminho}: {str(e)}")
+        return grafo
+
+    # Métodos auxiliares
+    def salvar_lista_adj(self, arquivo_saida):
+        with open(arquivo_saida, 'w') as f:
+            for rem, dests in self.lista_adj.items():
+                arestas = " -> ".join(f"({d}, {p})" for d, p in dests.items())
+                f.write(f"{rem}: {arestas}\n")
 
 # Exemplo de uso
-grafo = GrafoEmail()
-
-# Diretório base contendo os e-mails
-diretorio_base = r"c:\Users\padil\OneDrive\Documentos\TDE3 - Projeto Colaborativo 1\Amostra Enron - 2016"
-
-# Processar os e-mails e construir o grafo
-processar_emails(diretorio_base, grafo)
-
-# Salvar a lista de adjacências em um arquivo
-grafo.salvar_lista_adjacencias("lista_adjacencias.txt")
-
-# Obter informações gerais do grafo
-print("Número de vértices (ordem):", grafo.get_ordem())
-print("Número de arestas (tamanho):", grafo.get_tamanho())
-print("Número de vértices isolados:", grafo.get_isolados())
+if __name__ == "__main__":
+    grafo = GrafoEmail.processar_diretorio("Amostra Enron - 2016")
+    
+    print(f"Vértices: {grafo.get_ordem()}")
+    print(f"Arestas: {grafo.get_tamanho()}")
+    print(f"Isolados: {grafo.get_isolados()}")
+    
+    print("\n20 maiores grau de saída:")
+    for email, grau in grafo.get_20_grau_saida():
+        print(f"{email}: {grau}")
+        
+    print("\n20 maiores grau de entrada:")
+    for email, grau in grafo.get_20_grau_entrada():
+        print(f"{email}: {grau}")
+    
+    grafo.salvar_lista_adj("lista_emails.txt")
