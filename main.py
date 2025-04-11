@@ -48,45 +48,70 @@ Não serão considerados o uso de bibliotecas para grafos que já implementam as
 estruturas de dados ou funções solicitadas
 """
 
-import os
-import re
-from collections import defaultdict
-from email.utils import parseaddr
+import os  # Apenas para ler arquivos do sistema operacional
+import re  # Para processar texto
+import heapq  # Biblioteca padrão do Python para filas de prioridade
+from collections import defaultdict  # Para dicionários com valores padrão
+from email.utils import parseaddr # Para extrair endereços de email
 
 class GrafoEmail:
     def __init__(self):
         self.lista_adj = defaultdict(dict)
         self.grau_entrada = defaultdict(int)
         self.grau_saida = defaultdict(int)
-        self.vertices = set()
+        self.vertices = set()  # Todos os emails únicos (remetentes e destinatários)
+        self.ordem = 0
+        self.tamanho = 0
 
-    def adicionar_email(self, remetente, destinatarios):
-        #Adiciona arestas ao grafo e atualiza graus.
-        remetente = remetente.lower()
-        self.vertices.add(remetente)
-        
-        for destinatario in destinatarios:
-            destinatario = destinatario.lower()
-            self.vertices.add(destinatario)
-            
+    def adicionar_email(self, remetente, todos_destinatarios):
+        # Adiciona arestas do remetente para todos os destinatários (To, Cc, Bcc)
+        if not remetente or not todos_destinatarios:
+            return
+
+        # Normaliza remetente e verifica se é novo
+        remetente = self._normalizar_email(remetente)
+        if remetente not in self.vertices:
+            self.vertices.add(remetente)
+            self.ordem += 1
+
+        # Adiciona arestas para cada destinatário
+        for destinatario in todos_destinatarios:
+            destinatario = self._normalizar_email(destinatario)
+            if not destinatario or destinatario == remetente:
+                continue  # Ignora autoenvios
+
+            # Adiciona destinatário como vértice se for novo
+            if destinatario not in self.vertices:
+                self.vertices.add(destinatario)
+                self.ordem += 1
+
             # Atualiza aresta e graus
-            if destinatario in self.lista_adj[remetente]:
-                self.lista_adj[remetente][destinatario] += 1
-            else:
+            if destinatario not in self.lista_adj[remetente]:
                 self.lista_adj[remetente][destinatario] = 1
-                self.grau_saida[remetente] += 1
-                self.grau_entrada[destinatario] += 1
+                self.tamanho += 1
+            else:
+                self.lista_adj[remetente][destinatario] += 1
 
-    # Métodos do Requisito 2
+            self.grau_saida[remetente] += 1
+            self.grau_entrada[destinatario] += 1
+
+    def _normalizar_email(self, email):
+        # Extrai apenas o endereço de email, removendo nomes e espaços.
+        if not email:
+            return None
+        _, email = parseaddr(email.strip())
+        return email.lower() if email and '@' in email else None
+
+    # Métodos otimizados
     def get_ordem(self):
-        return len(self.vertices)
+        return self.ordem
 
     def get_tamanho(self):
-        return sum(len(vizinhos) for vizinhos in self.lista_adj.values())
+        return self.tamanho
 
     def get_isolados(self):
         return sum(1 for v in self.vertices 
-                 if self.grau_saida[v] == 0 and self.grau_entrada[v] == 0)
+                 if self.grau_entrada[v] == 0 and self.grau_saida[v] == 0)
 
     def get_20_grau_saida(self):
         return sorted(self.grau_saida.items(), key=lambda x: -x[1])[:20]
@@ -94,10 +119,167 @@ class GrafoEmail:
     def get_20_grau_entrada(self):
         return sorted(self.grau_entrada.items(), key=lambda x: -x[1])[:20]
 
+    def is_euleriano(self):
+        """
+        Verifica se o grafo direcionado possui um ciclo Euleriano.
+        Retorna (True, []) se for Euleriano, 
+        ou (False, [condições_falhas]) caso contrário.
+        
+        Condições para ser Euleriano:
+        1. O grafo deve ser fortemente conexo (componente fortemente conexo principal)
+        2. Todos os vértices devem ter grau de entrada igual ao grau de saída
+        """
+        falhas = []
+        
+        # Verificação 1: Grafo não vazio
+        if self.tamanho == 0:
+            falhas.append("O grafo não possui arestas")
+            return (False, falhas)
+        
+        # Verificação 2: Graus de entrada e saída iguais para todos os vértices
+        graus_iguais = all(self.grau_entrada[v] == self.grau_saida[v] for v in self.vertices)
+        if not graus_iguais:
+            falhas.append("Nem todos os vértices têm grau de entrada igual ao grau de saída")
+        
+        # Verificação 3: Fortemente conexo (para vértices com grau > 0)
+        vertices_ativos = {v for v in self.vertices if self.grau_entrada[v] > 0 or self.grau_saida[v] > 0}
+        if not self._is_fortemente_conexo(vertices_ativos):
+            falhas.append("O grafo não é fortemente conexo")
+        
+        return (True, []) if not falhas else (False, falhas)
+
+    def _is_fortemente_conexo(self, vertices):
+        # Verifica se o grafo é fortemente conexo usando DFS
+        if not vertices:
+            return False
+        
+        inicio = next(iter(vertices))
+        
+        # DFS no grafo original
+        visitados = set()
+        self._dfs(inicio, visitados)
+        if visitados != vertices:
+            return False
+        
+        # DFS no grafo transposto
+        visitados_transposto = set()
+        self._dfs_transposto(inicio, visitados_transposto)
+        return visitados_transposto == vertices
+
+    def _dfs(self, vertice, visitados):
+        # Busca em profundidade padrão
+        visitados.add(vertice)
+        for vizinho in self.lista_adj.get(vertice, {}):
+            if vizinho not in visitados:
+                self._dfs(vizinho, visitados)
+
+    def _dfs_transposto(self, vertice, visitados):
+        # Busca em profundidade no grafo transposto
+        visitados.add(vertice)
+        for v in self.lista_adj:
+            if vertice in self.lista_adj[v] and v not in visitados:
+                self._dfs_transposto(v, visitados)
+
+    def vertices_ate_distancia(self, vertice, D):
+        """
+        Retorna todos os vértices até distância D do vértice dado, onde a distância
+        é a soma dos pesos ao longo do caminho mais curto.
+        
+        Args:
+            vertice (str): O vértice de origem (email)
+            D (int): A distância máxima permitida
+            
+        Returns:
+            list: Lista de vértices (emails) dentro da distância D
+        """
+        if vertice not in self.vertices:
+            return []
+
+        # Inicializa estruturas de dados
+        distancias = {v: float('inf') for v in self.vertices}
+        distancias[vertice] = 0
+        fila_prioridade = [(0, vertice)]
+        visitados = set()
+        vertices_no_alcance = []
+
+        while fila_prioridade:
+            dist_atual, v_atual = heapq.heappop(fila_prioridade)
+            
+            # Se já visitamos este vértice com distância menor, pulamos
+            if v_atual in visitados:
+                continue
+                
+            visitados.add(v_atual)
+            
+            # Se está dentro do alcance, adiciona à lista de resultados
+            if dist_atual <= D:
+                vertices_no_alcance.append(v_atual)
+            else:
+                # Como estamos usando uma fila de prioridade, podemos parar aqui
+                # pois todas as distâncias restantes serão maiores
+                continue
+                
+            # Explora vizinhos
+            for vizinho, peso in self.lista_adj.get(v_atual, {}).items():
+                nova_distancia = dist_atual + peso
+                
+                # Se encontramos um caminho mais curto para o vizinho
+                if nova_distancia < distancias[vizinho]:
+                    distancias[vizinho] = nova_distancia
+                    heapq.heappush(fila_prioridade, (nova_distancia, vizinho))
+        
+        return vertices_no_alcance
+
+    def calcular_diametro(self):
+        # Calcula o diâmetro do grafo (maior caminho mais curto)
+        diametro = 0
+        caminho_diametro = []
+        vertices_ativos = [v for v in self.vertices if self.grau_entrada[v] > 0 or self.grau_saida[v] > 0]
+        
+        for v in vertices_ativos:
+            distancias, predecessores = self._dijkstra(v)
+            for u, dist in distancias.items():
+                if dist != float('inf') and dist > diametro:
+                    diametro = dist
+                    caminho_diametro = self._reconstruir_caminho(predecessores, v, u)
+        
+        return diametro, caminho_diametro
+
+    def _dijkstra(self, origem):
+        # Implementação do algoritmo de Dijkstra para caminhos mais curtos
+        distancias = {v: float('inf') for v in self.vertices}
+        predecessores = {v: None for v in self.vertices}
+        distancias[origem] = 0
+        fila = [(0, origem)]
+        
+        while fila:
+            dist_atual, v_atual = heapq.heappop(fila)
+            if dist_atual > distancias[v_atual]:
+                continue
+                
+            for vizinho, peso in self.lista_adj.get(v_atual, {}).items():
+                nova_dist = dist_atual + peso
+                if nova_dist < distancias[vizinho]:
+                    distancias[vizinho] = nova_dist
+                    predecessores[vizinho] = v_atual
+                    heapq.heappush(fila, (nova_dist, vizinho))
+        
+        return distancias, predecessores
+
+    def _reconstruir_caminho(self, predecessores, origem, destino):
+        # Reconstroi o caminho a partir dos predecessores
+        caminho = []
+        atual = destino
+        while atual is not None:
+            caminho.append(atual)
+            atual = predecessores[atual]
+        caminho.reverse()
+        return caminho if caminho[0] == origem else []
+
     # Utilitários de processamento de email
     @staticmethod
     def extrair_enderecos(cabecalho):
-        #Extrai emails de cabeçalhos complexos.#
+        # Extrai emails de cabeçalhos complexos
         if not cabecalho:
             return []
             
@@ -111,52 +293,43 @@ class GrafoEmail:
 
     @classmethod
     def processar_arquivo(cls, caminho_arquivo):
-        #Processa um único arquivo de email.#
-        grafo = cls()
+        # Extrai remetente (From) e todos os destinatários (To, Cc, Bcc)
         with open(caminho_arquivo, 'r', encoding='utf-8', errors='ignore') as f:
             conteudo = f.read()
 
-            # Extrai cabeçalhos principais
+            # Extrai remetente (From)
+            remetente = None
             from_match = re.search(r'^From:\s*(.*?)$', conteudo, re.M | re.I)
-            to_match = re.search(r'^To:\s*(.*?)$', conteudo, re.M | re.I)
-            
-            remetente = cls.extrair_enderecos(from_match.group(1)) if from_match else []
-            destinatarios = cls.extrair_enderecos(to_match.group(1)) if to_match else []
+            if from_match:
+                remetente = parseaddr(from_match.group(1))[1]
 
-            if remetente and destinatarios:
-                grafo.adicionar_email(remetente[0], destinatarios)
+            # Extrai todos os destinatários (To, Cc, Bcc)
+            todos_destinatarios = []
+            for campo in ['To', 'Cc', 'Bcc']:
+                match = re.search(rf'^{campo}:\s*(.*?)$', conteudo, re.M | re.I)
+                if match:
+                    destinatarios = [parseaddr(addr)[1] for addr in match.group(1).split(',') if parseaddr(addr)[1]]
+                    todos_destinatarios.extend(destinatarios)
 
-            # Processa encaminhamentos
-            for enc in re.findall(r'-{5,}.*?Forwarded by.*?-{5,}(.*?)-{5,}', conteudo, re.S):
-                from_enc = re.search(r'From:\s*(.*?)$', enc, re.M | re.I)
-                to_enc = re.search(r'To:\s*(.*?)$', enc, re.M | re.I)
-                
-                if from_enc and to_enc:
-                    rem_enc = cls.extrair_enderecos(from_enc.group(1))
-                    dest_enc = cls.extrair_enderecos(to_enc.group(1))
-                    if rem_enc and dest_enc:
-                        grafo.adicionar_email(rem_enc[0], dest_enc)
-
-        return grafo
+            return remetente, todos_destinatarios
 
     @classmethod
     def processar_diretorio(cls, diretorio_base):
-        """Processa todos os arquivos em um diretório."""
+        # Processa todos os arquivos no diretório e subdiretórios
         grafo = cls()
         for root, _, files in os.walk(diretorio_base):
             for file in files:
                 caminho = os.path.join(root, file)
                 try:
-                    grafo_arquivo = cls.processar_arquivo(caminho)
-                    # Mescla os grafos
-                    for rem, dests in grafo_arquivo.lista_adj.items():
-                        grafo.adicionar_email(rem, dests.keys())
+                    remetente, todos_destinatarios = cls.processar_arquivo(caminho)
+                    if remetente and todos_destinatarios:
+                        grafo.adicionar_email(remetente, todos_destinatarios)
                 except Exception as e:
-                    print(f"Erro ao processar {caminho}: {str(e)}")
+                    print(f"Erro no arquivo {file}: {str(e)}")
         return grafo
 
-    # Métodos auxiliares
     def salvar_lista_adj(self, arquivo_saida):
+        # Salva a lista de adjacências em um arquivo de texto
         with open(arquivo_saida, 'w') as f:
             for rem, dests in self.lista_adj.items():
                 arestas = " -> ".join(f"({d}, {p})" for d, p in dests.items())
@@ -164,18 +337,44 @@ class GrafoEmail:
 
 # Exemplo de uso
 if __name__ == "__main__":
+    # Substitua pelo caminho real do seu dataset
     grafo = GrafoEmail.processar_diretorio("Amostra Enron - 2016")
     
+    # Salva a lista de adjacências
+    grafo.salvar_lista_adj("lista_emails.txt")
+    
+    # Informações gerais
     print(f"Vértices: {grafo.get_ordem()}")
     print(f"Arestas: {grafo.get_tamanho()}")
     print(f"Isolados: {grafo.get_isolados()}")
     
+    # 20 maiores graus de saída
     print("\n20 maiores grau de saída:")
     for email, grau in grafo.get_20_grau_saida():
         print(f"{email}: {grau}")
         
+    # 20 maiores graus de entrada
     print("\n20 maiores grau de entrada:")
     for email, grau in grafo.get_20_grau_entrada():
         print(f"{email}: {grau}")
     
-    grafo.salvar_lista_adj("lista_emails.txt")
+    # Verificação de Euleriano
+    resultado, condicoes = grafo.is_euleriano()
+    if resultado:
+        print("\nO grafo é Euleriano")
+    else:
+        print("\nO grafo não é Euleriano. Condições:")
+        for condicao in condicoes:
+            print(f"- {condicao}")
+
+    # Exemplo de uso dos vértices até uma distância
+    vertice_exemplo = next(iter(grafo.vertices), None)
+    if vertice_exemplo:
+        print(f"\nVértices até distância 2 de {vertice_exemplo}:")
+        print(grafo.vertices_ate_distancia(vertice_exemplo, 2))
+
+    # Cálculo do diâmetro (pode ser demorado para grafos grandes)
+    print("\nCalculando diâmetro...")
+    diametro, caminho = grafo.calcular_diametro()
+    print(f"Diâmetro: {diametro}")
+    print(f"Caminho correspondente: {' -> '.join(caminho)}")
