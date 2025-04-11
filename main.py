@@ -124,10 +124,6 @@ class GrafoEmail:
         Verifica se o grafo direcionado possui um ciclo Euleriano.
         Retorna (True, []) se for Euleriano, 
         ou (False, [condições_falhas]) caso contrário.
-        
-        Condições para ser Euleriano:
-        1. O grafo deve ser fortemente conexo (componente fortemente conexo principal)
-        2. Todos os vértices devem ter grau de entrada igual ao grau de saída
         """
         falhas = []
         
@@ -184,13 +180,6 @@ class GrafoEmail:
         """
         Retorna todos os vértices até distância D do vértice dado, onde a distância
         é a soma dos pesos ao longo do caminho mais curto.
-        
-        Args:
-            vertice (str): O vértice de origem (email)
-            D (int): A distância máxima permitida
-            
-        Returns:
-            list: Lista de vértices (emails) dentro da distância D
         """
         if vertice not in self.vertices:
             return []
@@ -337,7 +326,7 @@ class GrafoEmail:
 
 # Exemplo de uso
 if __name__ == "__main__":
-    # Substitua pelo caminho real do seu dataset
+    # Caminho do dataset
     grafo = GrafoEmail.processar_diretorio("Amostra Enron - 2016")
     
     # Salva a lista de adjacências
@@ -373,7 +362,7 @@ if __name__ == "__main__":
         print(f"\nVértices até distância 2 de {vertice_exemplo}:")
         print(grafo.vertices_ate_distancia(vertice_exemplo, 2))
 
-    # Cálculo do diâmetro (pode ser demorado para grafos grandes)
+    # Cálculo do diâmetro
     print("\nCalculando diâmetro...")
     diametro, caminho = grafo.calcular_diametro()
     print(f"Diâmetro: {diametro}")
